@@ -38,9 +38,7 @@
 
 /*
  * Define the number of ECAN RECEIVE buffers.
- * Only one TX buffer is used. This
- * is explained in the readme file along with
- * this code example.
+ * Only one TX buffer is used.
  */
 #define NUM_OF_RX_BUFFERS 8
 
@@ -79,7 +77,7 @@ typedef struct _raw_ecan_message_data{
 
 int ECAN1_initialize(unsigned int receive_normal_standard_id);
 
-void ECAN1_config_DMA(int txBuffer,int rxBuffer, int numOfRxBuffers);
+void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int number_of_receive_buffers);
 void ECAN1_config_clock(void);
 void ECAN1_config_interrupts(void);
 void ECAN1_config_transmit_buffers(void);
@@ -96,6 +94,6 @@ void ECAN_create_extended_message(raw_ecan_message_data * message_data,int stand
 int ECAN1_send_standard_message(raw_ecan_message_data * message_data, int standard_id, unsigned int * output);
 
 unsigned int ECAN_get_standard_ID_Filter(int standard_id);
-unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long extended_id, int exid_enable);
+unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long extended_id);
 
 #endif /* _ECAN_PIC24_REGISTER_INDIRECT_H_ */

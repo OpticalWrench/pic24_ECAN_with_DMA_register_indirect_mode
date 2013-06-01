@@ -14,12 +14,10 @@
 #include "h/ecan_pic24_register_indirect.h"
 
 // ECAN variables
-volatile int rxBufferIndex = -1;
-int rxIndex;
-int txBufferIndex = 0;
+volatile int ECAN_receive_buffer_index = 0;
 unsigned int ECAN_transmit_buffer[7] __attribute__((space(dma))); // CAN message transmit buffer size is seven bytes
 unsigned int ECAN_receive_buffer[NUM_OF_RX_BUFFERS][8] __attribute__((space(dma))); // CAN receive message buffer size is eight bytes
-volatile int received = 0; // written to in the ECAN interrupt service routine. 1 = a message has been received and is in ECAN_receive_buffer
+volatile int ECAN_message_received = 0; // written to in the ECAN interrupt service routine. 1 = a message has been received and is in ECAN_receive_buffer
 volatile int ECAN_ready_to_transmit = 0; // 1 = the ECNA is ready and available to transmit
 
 void __attribute__((interrupt, no_auto_psv)) _C1Interrupt(void) {
@@ -27,48 +25,52 @@ void __attribute__((interrupt, no_auto_psv)) _C1Interrupt(void) {
      * Message Events and Error flags are processed. You can
      * check for the other events as well.*/
 
-    _C1IF = 0;
+    _C1IF = 0; // clear the ECAN1 interrupt flag
 
     if (C1INTFbits.TBIF == 1) {
         /* Transmit done. Set the flag so that
          * the main application loop knows that
          * the message was transmitted */
         ECAN_ready_to_transmit = 1;
-
         C1INTFbits.TBIF = 0;
-
-        DMA0CONbits.CHEN = 0; /* Uncomment these lines if the TX data payload */
-        DMA0CONbits.CHEN = 1; /* length is not fixed. */
+        DMA0CONbits.CHEN = 0; // reset the DMA controller
+        DMA0CONbits.CHEN = 1; // by disable then re-enable
     }
 
     if (C1INTFbits.RBIF == 1) {
-        /* Received a packet. Check if the
+        /*
+         * Received a messaage. Check if the
          * rxBufferIndex is at the boundary
          * and reset to initial condition
          * if needed.
+         * TODO check the RXFUL flags ...?
+         */
 
-         * You can check the RXFUL flags
-          if needed. */
-
-        if (rxBufferIndex == (NUM_OF_RX_BUFFERS - 1))
-            rxBufferIndex = -1;
-
+        if (ECAN_receive_buffer_index >= (NUM_OF_RX_BUFFERS - 1)) {
+            ECAN_receive_buffer_index = 0;
+        } else {
+            ECAN_receive_buffer_index++;
+        }
         C1INTFbits.RBIF = 0;
         C1RXFUL1 = 0;
-        received = 1;
-        rxBufferIndex++;
+        ECAN_message_received = 1;
     }
 
-    //int errVal;
+    /* this was in the base example code...
+    int errVal;
 
-    //if (C1INTFbits.ERRIF == 1) {
-    //errVal = C1EC;
-    //C1INTFbits.ERRIF = 0;
-    //}
+    if (C1INTFbits.ERRIF == 1) {
+    errVal = C1EC;
+    C1INTFbits.ERRIF = 0;
+    }
+    */
 }
 
 int ECAN1_initialize(unsigned int receive_normal_standard_id) {
-
+    /*
+     * initialize the ECAN1 peripheral to a clean, reset state.
+     * All masks and filters will be cleared and set to not ignore any messages.
+     */
     int retval = 0;
 
     retval = ECAN1_set_operating_mode(ECAN_MODE_CONFIGURATION);
@@ -77,9 +79,9 @@ int ECAN1_initialize(unsigned int receive_normal_standard_id) {
     ECAN1_config_clock();
     ECAN1_config_interrupts();
     ECAN1_config_receive_filter(receive_normal_standard_id);
+    // TODO ECAN1_disable_all_masks();
+    // TODO ECAN1_disable_all_filters();
     ECAN1_config_transmit_buffers();
-    //ECAN1_disable_all_masks();
-    //ECAN1_disable_all_filters();
     retval = ECAN1_set_operating_mode(ECAN_MODE_NORMAL);
     ECAN_ready_to_transmit = 1;
 
@@ -87,64 +89,29 @@ int ECAN1_initialize(unsigned int receive_normal_standard_id) {
 }
 
 unsigned int ECAN_get_standard_ID_Filter(int standard_id) {
-    /* This function returns the value to be
+    /*
+     * This function returns the value to be
      * stored in CxFnSID register.
-     * SID - The Standard ID
-     * EID - The Extended ID. For Standard messages
-     * 		 EID should be zero.
-     * EXIDE - 0 for Standard messages. 1 otherwise
      */
-
     unsigned int returnVal;
-
     returnVal = standard_id << 5;
-
-    //if(exide == 1)
-    //	returnVal |= 0x8;
-    //else
     returnVal &= 0xFFFE;
-    //returnVal |= (int)(eid >> 16);
-    return (returnVal);
+    return returnVal;
 }
 
-unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long eid, int exide) {
-    /* This function returns the value to be
+unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long extended_id) {
+    /*
+     * This function returns the value to be
      * stored in CxFnSID register.
-     * SID - The Standard ID
-     * EID - The Extended ID. For Standard messages
-     *       EID should be zero.
-     * EXIDE - 0 for Standard messages. 1 otherwise
      */
-
     unsigned int returnVal;
-
     returnVal = standard_id << 5;
-
-    if (exide == 1) {
-        returnVal |= 0x8;
-    }
-    else {
-        returnVal &= 0xFFFE;
-    }
-        returnVal |= (int) (eid >> 16);
-    return (returnVal);
+    returnVal |= 0x8;
+    returnVal |= (int) (extended_id >> 16);
+    return returnVal;
 }
 
-/*
-unsigned int ECANFilterEID(unsigned long eid) {
-     // This function will return value to be
-     // stored on CxFnEID register.
-     // EID - this is the extended ID
-
-    unsigned int returnVal;
-
-    returnVal = (int) (eid & 0xFFFF);
-
-    return (returnVal);
-}
- */
-
-void ECAN1_config_DMA(int txBufferOffset, int rxBufferOffset, int numOfRxBuffers) {
+void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int number_of_receive_buffers) {
     /* Set up DMA Channel 0 to copy data from
      * DMA RAM to ECAN module 1. The DMA mode is
      * Register Indirect with Post Increment.
@@ -153,12 +120,11 @@ void ECAN1_config_DMA(int txBufferOffset, int rxBufferOffset, int numOfRxBuffers
      * ping pong disabled is used. For ease of error
      * handling while using register indirect mode, only
      * one TX buffer is used. */
-
     DMA0CON = 0x2000;
     DMA0PAD = (int) (&C1TXD);
     DMA0CNT = 5;
     DMA0REQ = 0x0046;
-    DMA0STA = txBufferOffset;
+    DMA0STA = transmit_buffer_offset;
     _DMA0IE = 0;
     _DMA0IF = 0;
     DMA0CONbits.CHEN = 1;
@@ -171,35 +137,32 @@ void ECAN1_config_DMA(int txBufferOffset, int rxBufferOffset, int numOfRxBuffers
      * Note the size of each received message is
      * eight words. Continuous with ping pong disabled
      * is used.*/
-
     DMA1CON = 0x0000;
     DMA1PAD = (int) (&C1RXD);
-    DMA1CNT = (numOfRxBuffers * 8) - 1;
+    DMA1CNT = (number_of_receive_buffers * 8) - 1;
     DMA1REQ = 0x0022;
-    DMA1STA = rxBufferOffset;
+    DMA1STA = receive_buffer_offset;
     _DMA1IE = 0;
     _DMA1IF = 0;
     DMA1CONbits.CHEN = 1;
-
 }
 
 void ECAN1_config_clock(void) {
-    /* ECAN_FCY and ECAN_BITRATE are defined in
-     * ECAN1Drv.h. The total time quanta per
+    /*
+     * The total time quanta per
      * bit is 8. Refer to ECAN FRM section for
-     * more details on setting the CAN bit rate */
-
+     * more details on setting the CAN bit rate
+     */
     C1CTRL1bits.CANCKS = 1;
     C1CFG1 = ((ECAN_FCY / 16) / ECAN_BITRATE) - 1;
     C1CFG2 = 0x0290;
 
-    /* CAN Baud Rate Configuration  other method from microchip example    
+    /* CAN Baud Rate Configuration  other method from a microchip example
     #define FCAN            40000000 
     #define BITRATE         1000000  
     #define NTQ             20      // 20 Time Quanta in a Bit Time
     #define BRP_VAL         ((FCAN/(2*NTQ*BITRATE))-1)
      */
-
 }
 
 void ECAN1_config_interrupts(void) {
@@ -207,7 +170,6 @@ void ECAN1_config_interrupts(void) {
      * in this code example. All the status
      * flags are cleared before the module is
      * enabled */
-
     C1INTF = 0;
     _C1IF = 0;
     _C1TXIF = 0;
@@ -226,10 +188,8 @@ void ECAN1_config_transmit_buffers(void) {
     /* Configure only one TX buffer and enable
      * four DMA buffers. No need to configure
      * RX buffers. */
-
     C1CTRL1bits.WIN = 0;
     C1TR01CONbits.TXEN0 = 1;
-
 }
 
 void ECAN1_config_receive_filter(unsigned int receive_standard_id) {
@@ -239,8 +199,6 @@ void ECAN1_config_receive_filter(unsigned int receive_standard_id) {
      *  You may not want to set up the CxBUFPNTn bits to point to
      * FIFO. This way you can avoid the FIFO interrupts.
      * Just point to an arbitrary RX buffer */
-
-
     C1CTRL1bits.WIN = 1;
     C1FEN1 = 0x11;
     C1RXF0SID = ECAN_get_standard_ID_Filter(receive_standard_id);
@@ -251,7 +209,6 @@ void ECAN1_config_receive_filter(unsigned int receive_standard_id) {
     C1FMSKSEL1bits.F4MSK = 0x0; /* User MASK 0 for all filters */
     C1BUFPNT1bits.F0BP = 0x1; /* Set the destination buffers to be any thing but */
     C1BUFPNT2bits.F4BP = 0x1; /* configured transmit buffers */
-
 }
 
 int ECAN1_disable_receive_filter(unsigned int filter_number) {
@@ -351,16 +308,12 @@ int ECAN1_disable_receive_filter(unsigned int filter_number) {
 }
 
 void ECAN1_disable_all_filters(void) {
-
     //  ECAN modules have 16 acceptance masks
     // each is enabled by one bit in the C1FEN1 register
-
     C1FEN1 = 0x00; // clear all message filters
-
 }
 
 void ECAN1_disable_all_masks(void) {
-
     //  ECAN modules have 3 acceptance masks
     //  this function configures ECAN to accept all messages
 
@@ -467,32 +420,28 @@ int ECAN1_set_operating_mode(unsigned int requested_mode) {
 }
 
 void ECAN_create_standard_message(raw_ecan_message_data * message_data, int standard_id, unsigned int * output) {
-    /* This function will create a standard ID packet
+    /* This function will create a standard ID message
      * DLC is set to 8.
      * data - points to the data payload
      * SID - Standard ID value to be used.
-     * output - points to where the packet should be stored
+     * output - points to where the message should be stored
      * which typically is an ECAN TX buffer */
-
     output[0] = (standard_id << 2) & 0x1FFC; /* SID, SRR = 0 and IDE = 0 */
     output[1] = 0x8;
     output[2] = message_data->word0;
     output[3] = message_data->word1;
     output[4] = message_data->word2;
     output[5] = message_data->word3;
-
 }
 
 void ECAN_create_extended_message(raw_ecan_message_data * message_data, int standard_id, long extended_id, unsigned int * output) {
-    /* This function will create a extended ID packet
+    /* This function will create a extended ID message
      * DLC is set to 8.
      * data - points to the data payload
      * sid - standard id
      * eid - extended id
-     * output - points to where the packet should be stored
+     * output - points to where the message should be stored
      * which typically is an ECAN TX buffer */
-
-
     output[0] = (standard_id << 2) | 0x3;
     output[1] = (int) (extended_id >> 6) & 0x0FFF;
     output[2] = ((int) (extended_id & 0x3F) << 10) | 0x8;
@@ -500,7 +449,5 @@ void ECAN_create_extended_message(raw_ecan_message_data * message_data, int stan
     output[3] = message_data->word1;
     output[4] = message_data->word2;
     output[5] = message_data->word3;
-
-
 }
 
