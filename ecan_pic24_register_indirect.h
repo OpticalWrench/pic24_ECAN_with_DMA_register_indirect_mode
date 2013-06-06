@@ -89,9 +89,8 @@ int ECAN1_disable_receive_filter(unsigned int filter_number);
 void ECAN1_disable_all_filters(void);
 void ECAN1_disable_all_masks(void);
 
-void ECAN_create_standard_message(raw_ecan_message_data * message_data, int standard_id, unsigned int * output);
-void ECAN_create_extended_message(raw_ecan_message_data * message_data,int standard_id, long extended_id, unsigned int * output);
-int ECAN1_send_standard_message(raw_ecan_message_data * message_data, int standard_id, unsigned int * output);
+int ECAN1_send_extended_message(raw_ecan_message_data * message_data, int standard_id, long extended_id);
+int ECAN1_send_standard_message(raw_ecan_message_data * message_data, int standard_id);
 
 unsigned int ECAN_get_standard_ID_Filter(int standard_id);
 unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long extended_id);
