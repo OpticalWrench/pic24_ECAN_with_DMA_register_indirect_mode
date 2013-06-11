@@ -77,7 +77,7 @@ typedef struct _raw_ecan_message_data{
 
 int ECAN1_initialize(unsigned int receive_normal_standard_id);
 
-void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int number_of_receive_buffers);
+void ECAN1_config_DMA(void);
 void ECAN1_config_clock(void);
 void ECAN1_config_interrupts(void);
 void ECAN1_config_transmit_buffers(void);

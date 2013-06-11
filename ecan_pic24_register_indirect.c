@@ -16,7 +16,7 @@
 // ECAN variables
 volatile int ECAN_receive_buffer_index = 0;
 volatile int ECAN_last_message_received_index = 0;
-unsigned int ECAN_transmit_buffer[7] __attribute__((space(dma))); // CAN message transmit buffer size is 14 bytes
+volatile unsigned int ECAN_transmit_buffer[7] __attribute__((space(dma))); // CAN message transmit buffer size is 14 bytes
 unsigned int ECAN_receive_buffer[NUM_OF_RX_BUFFERS][8] __attribute__((space(dma))); // CAN receive message buffer size is 16 bytes
 volatile int ECAN_message_received = 0; // written to in the ECAN interrupt service routine. 1 = a message has been received and is in ECAN_receive_buffer
 volatile int ECAN_ready_to_transmit = 0; // 1 = the ECAN module is ready and available to transmit
@@ -34,8 +34,9 @@ void __attribute__((interrupt, no_auto_psv)) _C1Interrupt(void) {
          * the message was transmitted */
         ECAN_ready_to_transmit = 1;
         C1INTFbits.TBIF = 0;
-        DMA2CONbits.CHEN = 0; // reset the DMA channel
-        DMA2CONbits.CHEN = 1; // by disable then re-enable
+        
+        //DMA2CONbits.CHEN = 0; // reset the DMA channel
+        //DMA2CONbits.CHEN = 1; // by disable then re-enable
     }
 
     if (C1INTFbits.RBIF == 1) {
@@ -57,14 +58,15 @@ void __attribute__((interrupt, no_auto_psv)) _C1Interrupt(void) {
         ECAN_message_received = 1;
     }
 
-    /* this was in the base example code...
+    // this was in the base example code...
     int errVal;
 
     if (C1INTFbits.ERRIF == 1) {
+        //LATBbits.LATB5 = 1;
     errVal = C1EC;
     C1INTFbits.ERRIF = 0;
     }
-    */
+    
 }
 
 int ECAN1_initialize(unsigned int receive_normal_standard_id) {
@@ -76,7 +78,7 @@ int ECAN1_initialize(unsigned int receive_normal_standard_id) {
 
     retval = ECAN1_set_operating_mode(ECAN_MODE_CONFIGURATION);
 
-    ECAN1_config_DMA(__builtin_dmaoffset(ECAN_transmit_buffer), __builtin_dmaoffset(ECAN_receive_buffer), NUM_OF_RX_BUFFERS);
+    ECAN1_config_DMA();
     ECAN1_config_clock();
     ECAN1_config_interrupts();
     ECAN1_config_receive_filter(receive_normal_standard_id);
@@ -112,7 +114,7 @@ unsigned int ECAN_get_extended_ID_Filter(int standard_id, unsigned long extended
     return returnVal;
 }
 
-void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int number_of_receive_buffers) {
+void ECAN1_config_DMA(void) {
     /* Set up DMA Channel 2 to copy data from
      * DMA RAM to ECAN module 1. The DMA mode is
      * Register Indirect with Post Increment.
@@ -132,10 +134,10 @@ void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int
     DMA2CONbits.DIR = 1; // 1 = read from DMA RAM address, write to peripheral address
     DMA2CONbits.SIZE = 0; // 0 = word, 1 = byte
     
-    DMA2PAD = (volatile unsigned int) (&C1TXD); // DMA channel peripheral address
-    DMA2CNT = 1;
+    DMA2PAD = &C1TXD; // DMA channel peripheral address
+    DMA2CNT = 5; // set number of words to SIX per DMA transfer during an ECAN transmit
     DMA2REQ = 0b1000110; // associate DMA channel to ECAN transmit peripheral
-    DMA2STA = transmit_buffer_offset;
+    DMA2STA = __builtin_dmaoffset(ECAN_transmit_buffer);//transmit_buffer_offset;
     IEC1bits.DMA2IE = 0; // disable DMA channel interrupt
     IFS1bits.DMA2IF = 0; // clear DMA channel interrupt flag
     DMA2CONbits.CHEN = 1; // enable DMA channel
@@ -158,10 +160,10 @@ void ECAN1_config_DMA(int transmit_buffer_offset, int receive_buffer_offset, int
     DMA3CONbits.DIR = 0; // 0 = Read from peripheral address, write to DMA RAM address
     DMA3CONbits.SIZE = 0; // 0 = word, 1 = byte
 
-    DMA3PAD = (volatile unsigned int) (&C1RXD); // DMA channel peripheral address
-    DMA3CNT = (number_of_receive_buffers * 8) - 1;
+    DMA3PAD = &C1RXD; // DMA channel peripheral address
+    DMA3CNT = (NUM_OF_RX_BUFFERS * 8) - 1;
     DMA3REQ = 0b0100010; // associate DMA channel to ECAN receive peripheral
-    DMA3STA = receive_buffer_offset;
+    DMA3STA = __builtin_dmaoffset(ECAN_receive_buffer);//receive_buffer_offset;
     IEC2bits.DMA3IE = 0; // disable DMA channel interrupt
     IFS2bits.DMA3IF = 0; // clear DMA channel interrupt flag
     DMA3CONbits.CHEN = 1; // enable DMA channel
@@ -378,7 +380,6 @@ int ECAN1_send_message(void) {
                 /* Arbitration lost. Abort the
                  * message and reset the transmit
                  * buffer DMA */
-
                 C1TR01CONbits.TXREQ0 = 0;
                 DMA2CONbits.CHEN = 0;
                 DMA2CONbits.CHEN = 1;
